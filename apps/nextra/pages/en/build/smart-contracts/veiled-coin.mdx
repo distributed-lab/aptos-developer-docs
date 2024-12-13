@@ -62,21 +62,20 @@ struct VeiledCoinStore has key {
 
 ## Veiled Balance
 
-Veiled balances handle token amounts by splitting them into smaller, encrypted units called chunks.
-Each chunk represents a portion of the total value and is encrypted individually using the user’s EK.
-This design supports efficient management of balances.
+Veiled balances handle token amounts by splitting them into smaller units called chunks.
+Each chunk represents a portion of the total amount and is encrypted individually using the user’s EK.
+This design ensures efficient management of balances.
 
 ### Chunks
 
-The pending balance consists of two chunks that temporarily hold incoming transfers.
-It can handle up to 2^16 incoming 64-bit transfers before requiring a rollover to the actual balance.
-During this accumulation, the pending balance chunks can grow to 48 bits.
+The pending balance consists of two chunks that hold all incoming transfers.
+It can handle up to 2^16 transfers before requiring a rollover to the actual balance.
+During this accumulation, the pending balance chunks can grow up to 48 bits.
 
 The actual balance consists of four chunks, supporting up to 128-bit values.
-After any operation, except rollover, the actual balance is normalized back to 32 bits per chunk to maintain
-efficient decryption.
+After any operation, except rollover, the actual balance is [normalized](#normaliztion) back to 32-bit chunks to maintain efficient decryption.
 
-The `VeiledBalance` struct from the `veiled_balance` module is used to represent both pending and actual balances:
+The `VeiledBalance` struct from the `veiled_balance` module is used to represent both the pending and actual balances:
 
 ```move filename="veiled_coin.move"
 struct VeiledBalance has drop {
@@ -86,10 +85,10 @@ struct VeiledBalance has drop {
 
 ### Encryption and Decryption
 
-When a balance is encrypted:
+Encryption involves:
 
-- The total amount is split into 32-bit chunks.
-- Each chunk is encrypted individually with the user's EK.
+- Splitting the total amount into 32-bit chunks.
+- Applying the user's EK to encrypt each chunk individually.
 
 Decryption involves:
 
@@ -106,9 +105,9 @@ so that users can always decrypt their balances, even as balances grow through m
 
 ### Homomorphic Encryption
 
-Veiled balances utilize homomorphic encryption, allowing encrypted values to be added or subtracted without decryption.
-This capability is essential for updating the receiver's pending balance during transfers and for performing rollover
-operations, where the pending balance is added to the actual balance.
+Veiled balances utilize Homomorphic encryption, allowing arithmetic operations without their decryption.
+This capability is essential for updating the receiver's pending balance during transfers and for rollovers,
+where the user's pending balance is added to the actual one.
 
 ## Architecture
 
