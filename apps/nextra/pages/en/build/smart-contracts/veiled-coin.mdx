@@ -11,7 +11,8 @@ import { ThemedImage } from "@components/index";
 The Veiled Coin Standard (also known as "Veiled Coin" or "VC") is a privacy-focused protocol for managing Fungible Assets (FA).
 It allows users to perform transactions with hidden FA amounts while keeping sender and recipient addresses publicly visible.
 
-The standard supports wrapping any FA into corresponding Veiled Coin, enabling seamless integration with existing tokens.
+The standard allows any FA to be seamlessly wrapped into a corresponding Veiled Coin, ensuring compatibility with existing tokens.
+Similar to FA, 64-bit transfers are supported, and balances of up to 128 bits.
 
 Operations on Veiled Coin balances (veiled balances), require zero-knowledge proofs (ZKPs) to verify transaction correctness
 without revealing hidden amounts and other sensitive data.
@@ -29,7 +30,7 @@ without revealing hidden amounts and other sensitive data.
 
 ## Veiled Coin Store
 
-For every veiled balance a user registers, they generate a unique key pair:
+For every veiled coin a user registers, they generate a unique key pair:
 - An encryption key (EK) stored on-chain.
 - A decryption key (DK) kept securely by the user.
 
@@ -39,8 +40,7 @@ Each veiled balance is split into two parts:
 - `pending_balance` - accumulates all incoming transactions.
 - `actual_balance` - used exclusively for outgoing transactions.
 
-Both balances are encrypted with the same user's EK, ensuring underlying amounts are not exposed.
-The veiled balance can store up to 128-bit amounts, which is the maximum supply of the FA.
+Both balances are encrypted with the same user's EK, ensuring underlying amounts remain private.
 
 <Callout type="info">
   This separation protects against "front-running" attacks.
