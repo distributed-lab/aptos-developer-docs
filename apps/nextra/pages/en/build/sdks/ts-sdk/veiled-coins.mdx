@@ -1,0 +1,473 @@
+---
+title: "Veiled Coins"
+---
+
+import { Callout, Steps, Tabs } from 'nextra/components'
+import Link from 'next/link'
+
+# Interact with Veiled Coins (VC) via the typescript SDK
+
+You can use `veiledCoin` property of `Aptos` client to interact with `VC`
+
+```typescript
+const APTOS_NETWORK: Network = NetworkToNetworkName[Network.TESTNET];
+const config = new AptosConfig({ network: APTOS_NETWORK });
+export const aptos = new Aptos(config);
+```
+
+### Create Decryption Key (DK)
+
+To interact with veiled token user must create a [unique key pair](/en/build/smart-contracts/veiled-coin#veiled-coin-store).
+
+Generate new:
+
+```typescript
+const dk = TwistedEd25519PrivateKey.generate();
+```
+
+Or import existed one:
+
+```typescript
+const dk = new TwistedEd25519PrivateKey("0x...");
+```
+
+Also you could derive it using your `signature`:
+
+```typescript
+const user = Account.generate()
+
+const signature = user.sign(TwistedEd25519PrivateKey.decryptionKeyDerivationMessage);
+
+const dk = TwistedEd25519PrivateKey.fromSignature(signature);
+```
+
+Get encryption key:
+
+```typescript
+const encryptionKey = dk.publicKey()
+const encryptionKeyHex = encryptionKey.toString()
+```
+
+### Register
+
+To interact with veiled tokens user has to [register](/en/build/smart-contracts/veiled-coin#register) his encryption key (EK) in contracts
+
+```typescript
+const user = Account.generate()
+const userDecryptionKey = TwistedEd25519PrivateKey.generate()
+
+const TOKEN_ADDRESS = "0x..."
+
+const userRegisterVBTxBody = await aptos.veiledCoin.registerBalance({
+  sender: user.accountAddress,
+  tokenAddress: TOKEN_ADDRESS,
+  publicKey: userDecryptionKey.publicKey()
+});
+
+const txResponse = await aptos.signAndSubmitTransaction({ signer: user, transaction: userRegisterVBTxBody });
+
+const txReceipt = await aptos.waitForTransaction({ transactionHash: txResponse.hash });
+
+console.log(txReceipt);
+```
+
+this will check if user has already registered with token.
+
+```typescript
+const isRegistered = await aptos.veiledCoin.hasUserRegistered({
+  accountAddress: user.accountAddress,
+  tokenAddress: TOKEN_ADDRESS,
+});
+```
+
+### Deposit (Veil)
+
+Let's say you already have tokens.
+
+This will deposit them to your veiled balance
+
+```typescript
+
+const DEPOSIT_AMOUNT = 5n;
+const depositTx = await aptos.veiledCoin.deposit({
+  sender: user.accountAddress,
+  tokenAddress: TOKEN_ADDRESS,
+  amount: DEPOSIT_AMOUNT,
+});
+const txResponse = await aptos.signAndSubmitTransaction({ signer: user, transaction: depositTx });
+
+const txReceipt = await aptos.waitForTransaction({ transactionHash: txResponse.hash });
+
+console.log(txReceipt);
+```
+
+### Get user's balance
+
+Let's check user's balance after deposit.
+
+You could do that by using `aptos.veiledCoin.getBalance` method:
+
+```typescript
+const userVeiledBalance = await aptos.veiledCoin.getBalance({ accountAddress: user.accountAddress, tokenAddress: TOKEN_ADDRESS });
+```
+
+This method returns you user's [`pending` and `actual`](/en/build/smart-contracts/veiled-coin#veiled-coin-store) veiled balances, to [decrypt](/en/build/smart-contracts/veiled-coin#encryption-and-decryption) them, you can use `VeiledAmount` class
+
+```typescript
+import { VeiledAmount, Account, TwistedEd25519PrivateKey } from '@aptos-labs/ts-sdk'
+
+const getBalances = async (accountAddress: string, decryptionKey: TwistedEd25519PrivateKey, tokenAddress: string) => {
+  const userVeiledBalance = await aptos.veiledCoin.getBalance({ accountAddress, tokenAddress });
+
+  const [veiledAmountPending, veiledAmountActual] = await Promise.all([
+    VeiledAmount.fromEncrypted(userVeiledBalance.pending, decryptionKey),
+    VeiledAmount.fromEncrypted(userVeiledBalance.actual, decryptionKey)
+  ])
+
+  return {
+    pending: {
+      amount: veiledAmountPending.amount,
+      amountChunked: veiledAmountPending.amountChunked,
+      amountEncrypted: veiledAmountPending.amountEncrypted,
+    },
+    actual: {
+      amount: veiledAmountActual.amount,
+      amountChunked: veiledAmountActual.amountChunked,
+      amountEncrypted: veiledAmountActual.amountEncrypted,
+    },
+  }
+}
+```
+
+### Rollover
+
+After you deposited to user's veiled balance, you can see, that he has, for instance `5n` at his `pending` balance, and `0n` at his `actual` balance.
+
+Since user can't operate with `pending` balance, you could [rollover](/en/build/smart-contracts/veiled-coin#rollover-pending-balance) it to `actual` one.
+
+And you can do that, by using `aptos.veiledCoin.rolloverPendingBalance`.
+
+<Callout type="warning">
+  Important note, that user's actual balance need to be [normalized](/en/build/smart-contracts/veiled-coin#normalization) before `rollover` operation.
+</Callout>
+
+To cover `normalization` & `rollover` simultaneously, you could use `aptos.veiledCoin.safeRolloverPendingVB`.
+
+```typescript
+const rolloverTxPayloads = await aptos.veiledCoin.safeRolloverPendingVB({
+  sender: user.accountAddress,
+  tokenAddress: TOKEN_ADDRESS,
+  withFreezeBalance: false,
+  decryptionKey: decryptionKey,
+});
+
+aptos.transaction.batch.forSingleAccount({
+  user,
+  data: rolloverTxPayloads,
+});
+```
+
+After that you could check user's balance, his `pending` balance should be empty, and `actual` is `5n`.
+
+---
+
+Next operations require generating ZKPs, and depending on your environment, you need to define `Range Proof` calculation.
+
+For the web, you could use `@distributedlab/aptos-wasm-bindings`:
+
+[//]: # (TODO: create new repo in aptos group)
+```typescript
+import initWasm, { range_proof as rangeProof, verify_proof as verifyProof } from "@distributedlab/aptos-wasm-bindings";
+
+export interface RangeProofInputs {
+  v: bigint;
+  r: Uint8Array;
+  valBase: Uint8Array;
+  randBase: Uint8Array;
+  bits?: number;
+}
+
+export interface VerifyRangeProofInputs {
+  proof: Uint8Array;
+  commitment: Uint8Array;
+  valBase: Uint8Array;
+  randBase: Uint8Array;
+  bits?: number;
+}
+
+const RANGE_PROOF_WASM_URL = "https://unpkg.com/@distributedlab/aptos-wasm-bindings@0.2.4/aptos-wasm-bindings-bg.wasm";
+
+/**
+ * Generate range Zero Knowledge Proof
+ *
+ * @param opts.v The value to create the range proof for
+ * @param opts.r A vector of bytes representing the blinding scalar used to hide the value.
+ * @param opts.valBase A vector of bytes representing the generator point for the value.
+ * @param opts.randBase A vector of bytes representing the generator point for the randomness.
+ * @param opts.bits Bits size of value to create the range proof
+ */
+export async function generateRangeZKP(opts: RangeProofInputs) {
+  await initWasm(RANGE_PROOF_WASM_URL);
+  const proof = rangeProof(opts.v, opts.r, opts.valBase, opts.randBase, opts.bits ?? 32);
+
+  return {
+    proof: proof.proof(),
+    commitment: proof.comm(),
+  };
+}
+
+/**
+ * Verify range Zero Knowledge Proof
+ *
+ * @param opts.proof A vector of bytes representing the serialized range proof to be verified.
+ * @param opts.commitment A vector of bytes representing the Pedersen commitment the range proof is generated for.
+ * @param opts.valBase A vector of bytes representing the generator point for the value.
+ * @param opts.randBase A vector of bytes representing the generator point for the randomness.
+ * @param opts.bits Bits size of the value for range proof
+ */
+export async function verifyRangeZKP(opts: VerifyRangeProofInputs) {
+  await initWasm(RANGE_PROOF_WASM_URL);
+
+  return verifyProof(opts.proof, opts.commitment, opts.valBase, opts.randBase, opts.bits ?? 32);
+}
+```
+
+So, just place this at the very top of your app
+
+```typescript
+import { RangeProofExecutor } from '@aptos-labs/ts-sdk'
+
+RangeProofExecutor.setGenerateRangeZKP(generateRangeZKP);
+RangeProofExecutor.setVerifyRangeZKP(verifyRangeZKP);
+```
+
+For mobile native apps:
+
+[//]: # (TODO: publish and add here expo module)
+You could use [this]() expo module for `expo` based `react-native` apps.
+
+Or generate `android` and `ios` bindings [here](https://github.com/distributed-lab/aptos-wasm-bindings/tree/feature/uniffi) and integrate in your app as you please.
+
+### Withdraw
+
+Now, since we have funds in our `actual` balance, let's try to [withdraw](/en/build/smart-contracts/veiled-coin#unveil) some
+
+```typescript
+const balances = await getBalances(user.accountAddress.toString(), decryptionKey, TOKEN_ADDRESS);
+
+const WITHDRAW_AMOUNT = 1n;
+const withdrawTx = await aptos.veiledCoin.withdraw({
+  sender: user.accountAddress,
+  tokenAddress: TOKEN_ADDRESS,
+  decryptionKey: decryptionKey,
+  encryptedActualBalance: balances.actual.amountEncrypted,
+  amountToWithdraw: WITHDRAW_AMOUNT,
+});
+
+const txResponse = await aptos.signAndSubmitTransaction({ signer: user, transaction: withdrawTx });
+
+const txReceipt = await aptos.waitForTransaction({ transactionHash: txResponse.hash });
+
+console.log(txReceipt);
+```
+
+### Transfer
+
+For [transfer](/en/build/smart-contracts/veiled-coin#fully-veiled-transfer) you need to know recipient's encryption key and `aptos` account address
+
+<Callout type="warning">
+  Encryption key is now an `Account` address or public key, you need a specifically defined in Veiled Coins standard encryption key stored on-chain. (The same key you could get by calling `decryptionKey.publicKey())`
+</Callout>
+
+Let's say you have encryption key hex, lets define EncryptionKey for our operations
+
+```typescript
+const recipientEncryptionKeyHex = "0x..."
+const recipientEncryptionKey = new TwistedEd25519PublicKey(recipientEncryptionKeyHex)
+```
+
+```typescript
+const myBalance = await getBalances(user.accountAddress.toString(), myDecryptionKey, TOKEN_ADDRESS);
+const recipientAccountAddress = "0x..."
+
+const TRANSFER_AMOUNT = 2n;
+const transferTx = await aptos.veiledCoin.transferCoin({
+  sender: user.accountAddress,
+  senderDecryptionKey: myDecryptionKey,
+  recipientEncryptionKey: recipientEncryptionKey,
+  encryptedActualBalance: myBalance.actual.amountEncrypted,
+  amountToTransfer: TRANSFER_AMOUNT,
+  tokenAddress: TOKEN_ADDRESS,
+  recipientAddress: recipientAccountAddress,
+});
+
+const txResponse = await aptos.signAndSubmitTransaction({ signer: user, transaction: transferTx });
+
+const txReceipt = await aptos.waitForTransaction({ transactionHash: txResponse.hash });
+
+console.log(txReceipt);
+```
+
+Basically, your transfer could include a global auditor, which you can get by
+
+```typescript
+const [address] = await aptos.veiledCoin.getGlobalAuditor();
+const globalAuditorAddress = address.toString();
+```
+
+If you want to add more auditors to your transfer, you can use
+
+```typescript
+const AUDITOR = TwistedEd25519PrivateKey.generate();
+
+const myBalance = await getBalances(user.accountAddress.toString(), myDecryptionKey, TOKEN_ADDRESS);
+const recipientAccountAddress = "0x..."
+
+const TRANSFER_AMOUNT = 2n;
+const transferTx = await aptos.veiledCoin.transferCoin({
+  sender: user.accountAddress,
+  senderDecryptionKey: myDecryptionKey,
+  recipientEncryptionKey: recipientEncryptionKey,
+  encryptedActualBalance: myBalance.actual.amountEncrypted,
+  amountToTransfer: TRANSFER_AMOUNT,
+  tokenAddress: TOKEN_ADDRESS,
+  recipientAddress: recipientAccountAddress,
+  auditorEncryptionKeys: [AUDITOR.publicKey()],
+});
+
+const txResponse = await aptos.signAndSubmitTransaction({ signer: user, transaction: transferTx });
+
+const txReceipt = await aptos.waitForTransaction({ transactionHash: txResponse.hash });
+```
+
+### Normalization
+
+Usually you don't need to explicit call [normalization](/en/build/smart-contracts/veiled-coin#normalization-1)
+
+But in case you want to:
+
+Check veiled balance is normalized
+
+```typescript
+const isBalanceNormalized = await aptos.veiledCoin.isUserBalanceNormalized({
+  accountAddress: user.accountAddress,
+  tokenAddress: TOKEN_ADDRESS,
+});
+```
+
+and normalize once need
+
+```typescript
+const balances = await getBalances(user.accountAddress.toString(), myDecryptionKey, TOKEN_ADDRESS);
+
+const normalizeTx = await aptos.veiledCoin.normalizeUserBalance({
+  tokenAddress: TOKEN_ADDRESS,
+  decryptionKey: myDecryptionKey,
+  unnormilizedEncryptedBalance: balances.actual.amountEncrypted,
+  balanceAmount: balances.actual.amount,
+  sender: user.accountAddress,
+});
+
+const txResponse = await aptos.signAndSubmitTransaction({ signer: user, transaction: normalizeTx });
+
+const txReceipt = await aptos.waitForTransaction({ transactionHash: txResponse.hash });
+```
+
+### Recovery
+
+The `recovery` in this case implemented by [key rotation](/en/build/smart-contracts/veiled-coin#rotate-encryption-key)
+
+To do so, you need to create new decryption key and use `aptos.veiledCoin.rotateVBKey`
+
+<Callout type="warning">
+  But keep in mind, that to avoid `front-running` attacks you have to `freeze` your pending balance with `rollover_pending_balance` function, to do so, you can use static `VeiledCoin.safeRotateVBKey` method, which simplify flow for you.
+</Callout>
+
+```typescript
+const balances = await getBalances(user.accountAddress.toString(), myDecryptionKey, TOKEN_ADDRESS);
+
+const NEW_DECRYPTION_KEY = TwistedEd25519PrivateKey.generate();
+const keyRotationAndUnfreezeTxResponse = await VeiledCoin.safeRotateVBKey(aptos, user, {
+  sender: user.accountAddress,
+
+  currDecryptionKey: currentDecryptionKey,
+  newDecryptionKey: NEW_DECRYPTION_KEY,
+
+  currEncryptedBalance: balances.actual.amountEncrypted,
+
+  withUnfreezeBalance: true, // if you want to unfreeze balance after
+  tokenAddress: TOKEN_ADDRESS,
+});
+
+// save: new decryption key
+console.log(NEW_DECRYPTION_KEY.toString());
+
+// check new balances
+const newBalance = await getBalances(user.accountAddress.toString(), NEW_DECRYPTION_KEY, TOKEN_ADDRESS);
+
+console.log(newBalance.pending.amount);
+console.log(newBalance.actual.amount);
+```
+
+---
+
+### Some useful functions
+
+```typescript
+
+import {
+  Aptos,
+  AptosConfig,
+  Network,
+  Account,
+  NetworkToNetworkName,
+  TransactionWorkerEventsEnum,
+  type AnyRawTransaction,
+  type CommittedTransactionResponse,
+  type InputGenerateTransactionPayloadData,
+} from '@aptos-labs/ts-sdk'
+
+
+const APTOS_NETWORK: Network = NetworkToNetworkName[Network.TESTNET];
+
+const config = new AptosConfig({ network: APTOS_NETWORK });
+
+const aptos = new Aptos(config);
+
+const TOKEN_ADDRESS = "0x...";
+
+const sendAndWaitTx = async (
+    transaction: AnyRawTransaction,
+    signer: Account,
+): Promise<CommittedTransactionResponse> => {
+  const pendingTxn = await aptos.signAndSubmitTransaction({ signer, transaction });
+  return aptos.waitForTransaction({ transactionHash: pendingTxn.hash });
+};
+
+export const sendAndWaitBatchTxs = async (
+  txPayloads: InputGenerateTransactionPayloadData[],
+  sender: Account,
+): Promise<CommittedTransactionResponse[]> => {
+  aptos.transaction.batch.forSingleAccount({
+    sender,
+    data: txPayloads,
+  });
+
+  let allTxSentPromiseResolve: (value: void | PromiseLike<void>) => void;
+  const txHashes: string[] = [];
+
+  aptos.transaction.batch.on(TransactionWorkerEventsEnum.TransactionSent, async (data) => {
+    txHashes.push(data.transactionHash);
+
+    if (txHashes.length === txPayloads.length) {
+      allTxSentPromiseResolve();
+    }
+  });
+
+  await new Promise<void>((resolve) => {
+    allTxSentPromiseResolve = resolve;
+  });
+
+  return Promise.all(txHashes.map((txHash) => aptos.waitForTransaction({ transactionHash: txHash })));
+};
+```
