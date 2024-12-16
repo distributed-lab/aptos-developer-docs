@@ -308,8 +308,12 @@ The `fully_veiled_transfer` function transfers tokens from the sender's actual b
 pending balance. The sender encrypts the transferred amount using the recipient's encryption key, enabling the recipient's
 veiled balance to be updated [homomorphically](#homomorphic-encryption).
 
-To ensure transparency, the sender also encrypts the transferred amount using the auditors' encryption keys,
+To ensure transparency, the sender also encrypts the transferred amount using the auditors' EKs,
 allowing the auditors to decrypt the transferred amount on their end.
+
+<Callout type="warning">
+  If the global auditor is set, it must be included in the `auditor_eks` list as the FIRST element (see the example below).
+</Callout>
 
 <Callout type="info">
   Once a user has participated in at least one transfer, their balance becomes "veiled".
