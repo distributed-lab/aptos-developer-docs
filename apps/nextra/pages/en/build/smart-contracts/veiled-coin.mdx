@@ -69,10 +69,10 @@ This design ensures efficient management of balances.
 ### Chunks
 
 The pending balance consists of two chunks that hold all incoming transfers.
-It can handle up to 2^16 transfers before requiring a rollover to the actual balance.
+It can handle up to 2^16 64-bit transfers before requiring a rollover to the actual balance.
 During this accumulation, the pending balance chunks can grow up to 48 bits.
 
-The actual balance consists of four chunks, supporting up to 128-bit values.
+The actual balance consists of four chunks, supporting 128-bit values.
 After any operation, except rollover, the actual balance is [normalized](#normaliztion) back to 32-bit chunks to maintain efficient decryption.
 
 The `VeiledBalance` struct from the `veiled_balance` module is used to represent both the pending and actual balances:
@@ -105,7 +105,7 @@ so that users can always decrypt their balances, even as balances grow through m
 
 ### Homomorphic Encryption
 
-Veiled balances utilize Homomorphic encryption, allowing arithmetic operations without their decryption.
+The protocol utilizes Homomorphic encryption, allowing arithmetic operations on veiled balances without their decryption.
 This capability is essential for updating the receiver's pending balance during transfers and for rollovers,
 where the user's pending balance is added to the actual one.
 
@@ -237,12 +237,15 @@ module veiled_coin_addr::veil_example {
 public entry fun rollover_pending_balance(sender: &signer, token: Object<Metadata>)
 ```
 
-The `rollover_pending_balance` function "merges" the pending balance into the actual one, resetting the pending balance to zero.
+The `rollover_pending_balance` function adds the pending balance to the actual one, resetting the pending balance to zero.
 This works because of the [Homomorphic encryption](#homomorphic-encryption) used in the protocol.
-Before spending from the pending balance, the user must call this function in a separate transaction.
+
+<Callout type="info">
+  You cannot spend money from the pending balance directly. It must be rolled over to the actual balance first.
+</Callout>
 
 <Callout type="warning">
-Calling the `rollover_pending_balance` function in a separate transaction is crucial for preventing ["front-running" attacks](#veiled-coin-store).
+  Calling the `rollover_pending_balance` function in a separate transaction is crucial for preventing ["front-running" attacks](#veiled-coin-store).
 </Callout>
 
 ```move filename="rollover_example.move"
@@ -306,9 +309,7 @@ pending balance. The sender encrypts the transferred amount using the recipient'
 veiled balance to be updated [homomorphically](#homomorphic-encryption).
 
 To ensure transparency, the sender also encrypts the transferred amount using the auditors' encryption keys,
-allowing the auditors to decrypt and verify the transferred amount.
-
-Finally, the sender provides their updated normalized actual veiled balance, encrypted with fresh randomness to maintain privacy.
+allowing the auditors to decrypt the transferred amount on their end.
 
 <Callout type="info">
   Once a user has participated in at least one transfer, their balance becomes "veiled".
