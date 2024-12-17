@@ -30,7 +30,7 @@ without revealing hidden amounts and other sensitive data.
 
 ## Veiled Coin Store
 
-For every veiled coin a user registers, they generate a unique key pair:
+For every veiled coin a user registers, they generate a unique keypair:
 - An encryption key (EK) stored on-chain.
 - A decryption key (DK) kept securely by the user.
 
@@ -73,7 +73,7 @@ It can handle up to 2^16 64-bit transfers before requiring a rollover to the act
 During this accumulation, the pending balance chunks can grow up to 48 bits.
 
 The actual balance consists of four chunks, supporting 128-bit values.
-After any operation, except rollover, the actual balance is [normalized](#normaliztion) back to 32-bit chunks to maintain efficient decryption.
+After any operation the actual balance should be [normalized](#normaliztion) back to 32-bit chunks to maintain efficient decryption.
 
 The `VeiledBalance` struct from the `veiled_balance` module is used to represent both the pending and actual balances:
 
@@ -100,8 +100,9 @@ Decryption involves:
 
 Normalization ensures chunks are always reduced to manageable sizes (32 bits).
 Without normalization, chunks can grow too large, making the decryption process (solving DL) significantly slower or even impractical.
-This mechanism is automatically applied to the actual balance after every operation,
-so that users can always decrypt their balances, even as balances grow through multiple transactions.
+This mechanism is automatically applied to the actual balance after each operation,
+ensuring that users can always decrypt their balances, even as balances grow through multiple transactions.
+Only after a rollover, users are required to normalize the actual balance [manually].
 
 ### Homomorphic Encryption
 
@@ -111,7 +112,19 @@ where the user's pending balance is added to the actual one.
 
 ## Architecture
 
-- Add scheme and small description
+The diagram below shows the relationship between Veiled Coin modules:
+
+<ThemedImage
+  alt="VC Modules Relationship"
+  sources={{
+    light: '/docs/vc-diagram-light.png',
+    dark: '/docs/vc-diagram-dark.png',
+  }}
+/>
+
+Users interact with the `veiled_coin` module to perform operations on their veiled balances.
+The `veiled_coin` module calls the `veiled_balance` module to manage the veiled balances and the `veiled_proof` module to verify ZKPs.
+Under the hood, the `veiled_balance` module uses the `twisted_elgamal` module for operations on chunks.
 
 ## Entry functions
 
@@ -120,15 +133,21 @@ where the user's pending balance is added to the actual one.
 ```move filename="veiled_coin.move"
 public entry fun register(sender: &signer, token: Object<Metadata>, ek: vector<u8>)
 ```
+```move filename="veiled_coin.move"
+#[view]
+public fun has_veiled_coin_store(user: address, token: Object<Metadata>): bool
+```
 
 Users must register a `VeiledCoinStore` for each token they intend to transact with.
-As part of this process, users are required to generate a key pair (EK and DK) on their end.
+As part of this process, users are required to generate a keypair (EK and DK) on their end.
 
 When a `VeiledCoinStore` is first registered, the veiled balance is set to zero,
 represented as zero ciphertexts for both the `pending_balance` and `actual_balance`.
 
+You can also check if a user has a `VeiledCoinStore` for a specific token using the `has_veiled_coin_store` function.
+
 <Callout type="info">
-  Although it is recommended to generate a unique key pair for each token to enhance security,
+  Although it is recommended to generate a unique keypair for each token to enhance security,
   it's not restricted to reuse the same encryption key across multiple tokens if preferred.
 </Callout>
 <Callout type="warning">
@@ -144,7 +163,7 @@ module veiled_coin_addr::register_example {
     fun register(bob: &signer, token: Object<Metadata>) {
         let bob_addr = signer::address_of(bob);
 
-        // It's a test-only function, so we don't need to worry about the security of the key pair.
+        // It's a test-only function, so we don't need to worry about the security of the keypair.
         let (_bob_dk, bob_ek) = twisted_elgamal::generate_twisted_elgamal_keypair();
 
         let bob_ek = twisted_elgamal::pubkey_to_bytes(&bob_ek);
@@ -204,6 +223,8 @@ module veiled_coin_addr::veil_example {
         print(&utf8(b"Bob's FA balance before the veil is 500:"));
         print(&primary_fungible_store::balance(bob_addr, token));
 
+        assert!(primary_fungible_store::balance(bob_addr, token) == 500);
+
         let bob_amount = 100;
         let alice_amount = 200;
 
@@ -213,6 +234,8 @@ module veiled_coin_addr::veil_example {
 
         print(&utf8(b"Bob's FA balance after the veil is 200:"));
         print(&primary_fungible_store::balance(bob_addr, token));
+
+        assert!(primary_fungible_store::balance(bob_addr, token) == 200);
 
         print(&utf8(b"Bob's pending balance is not zero:"));
         print(&veiled_coin::pending_balance(bob_addr, token));
@@ -238,10 +261,15 @@ public entry fun rollover_pending_balance(sender: &signer, token: Object<Metadat
 ```
 
 The `rollover_pending_balance` function adds the pending balance to the actual one, resetting the pending balance to zero.
-This works because of the [Homomorphic encryption](#homomorphic-encryption) used in the protocol.
+It works with no additional proofs as this function utilizes properties of the [Homomorphic encryption](#homomorphic-encryption) used in the protocol.
 
 <Callout type="info">
   You cannot spend money from the pending balance directly. It must be rolled over to the actual balance first.
+</Callout>
+
+<Callout type="warning">
+  The actual balance must be [normalized](#normalization) before performing a rollover.
+  If it is not normalized, you can use the [`normalize`](#normalize) function to do so.
 </Callout>
 
 <Callout type="warning">
@@ -273,6 +301,9 @@ module veiled_coin_addr::rollover_example {
 
         assert!(veiled_coin::verify_pending_balance(bob_addr, token, &bob_dk, 100));
         assert!(veiled_coin::verify_actual_balance(bob_addr, token, &bob_dk, 0));
+
+        /// No explicit normalization is required, as the actual balance is already normalized.
+        assert!(veiled_coin::is_normalized(bob_addr, token));
 
         veiled_coin::rollover_pending_balance(bob, token);
 
@@ -308,7 +339,7 @@ The `fully_veiled_transfer` function transfers tokens from the sender's actual b
 pending balance. The sender encrypts the transferred amount using the recipient's encryption key, enabling the recipient's
 veiled balance to be updated [homomorphically](#homomorphic-encryption).
 
-To ensure transparency, the sender also encrypts the transferred amount using the auditors' EKs,
+To ensure transparency, the sender could also encrypt the transferred amount using the auditors' EKs,
 allowing the auditors to decrypt the transferred amount on their end.
 
 <Callout type="warning">
@@ -481,6 +512,8 @@ module veiled_coin_addr::unveil_example {
         print(&utf8(b"Alice's FA balance before the unveil is zero:"));
         print(&primary_fungible_store::balance(alice_addr, token));
 
+        assert!(primary_fungible_store::balance(alice_addr, token) == 0);
+
         print(&utf8(b"Bob's actual balance before the unveil is 500"));
         assert!(veiled_coin::verify_actual_balance(bob_addr, token, &bob_dk, bob_current_amount));
 
@@ -501,6 +534,8 @@ module veiled_coin_addr::unveil_example {
 
         print(&utf8(b"Alice's FA balance after the unveil is 50:"));
         print(&primary_fungible_store::balance(alice_addr, token));
+
+        assert!(primary_fungible_store::balance(alice_addr, token) == 50);
 
         print(&utf8(b"Bob's actual balance after the veil is 450"));
         assert!(veiled_coin::verify_actual_balance(bob_addr, token, &bob_dk, bob_new_amount));
@@ -612,7 +647,7 @@ module veiled_coin_addr::rotate_example {
 
 ```
 
-### Normalization
+### Normalize
 
 ```move filename="veiled_coin.move"
 public entry fun normalize(
@@ -621,6 +656,9 @@ public entry fun normalize(
     new_balance: vector<u8>,
     zkrp_new_balance: vector<vector<u8>>,
     sigma_proof: vector<u8>)
+```
+```move filename="veiled_coin.move"
+public fun is_normalized(user: address, token: Object<Metadata>): bool
 ```
 
 The `normalize` function ensures that the actual balance is reduced to 32-bit chunks for [efficient decryption](#normalization).
@@ -632,7 +670,8 @@ All other functions, such as `unveil` or `fully_veiled_transfer`, handle normali
   All functions except `rollover_pending_balance` perform implicit normalization.
 </Callout>
 <Callout type="warning">
-  Attempting calling a `rollover_pending_balance` on an denormalized balance will cause an error.
+  Calling a `rollover_pending_balance` when the actual balance is already normalized will cause an error.
+  You can check if the actual balance is normalized using the `is_normalized` function.
 </Callout>
 
 ```move filename="normalize_example.move"
@@ -692,9 +731,16 @@ module veiled_coin_addr::normalize_example {
 
         // A rollover can be performed once the balance is normalized.
         // Note that functions like `unveil` and `fully_veiled_transfer` do not require the actual balance
-        // to be normalized beforehand, as zk-proofs guarantee that the actual balance is normalize after
+        // to be normalized beforehand, as zk-proofs guarantee that the actual balance is normalized after
         // their execution.
         veiled_coin::rollover_pending_balance(bob, token);
     }
 }
 ```
+
+## Useful Resources
+
+- [Veiled Coin SDK](https://)
+- [Veiled Coin Whitepaper](https://)
+- [Veiled Coin Contracts](https://)
+- [Veiled Coin Move Examples](https://)
