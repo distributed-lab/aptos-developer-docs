@@ -302,7 +302,7 @@ module veiled_coin_addr::rollover_example {
         assert!(veiled_coin::verify_pending_balance(bob_addr, token, &bob_dk, 100));
         assert!(veiled_coin::verify_actual_balance(bob_addr, token, &bob_dk, 0));
 
-        /// No explicit normalization is required, as the actual balance is already normalized.
+        // No explicit normalization is required, as the actual balance is already normalized.
         assert!(veiled_coin::is_normalized(bob_addr, token));
 
         veiled_coin::rollover_pending_balance(bob, token);
