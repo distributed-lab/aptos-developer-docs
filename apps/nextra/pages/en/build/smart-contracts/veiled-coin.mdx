@@ -70,7 +70,7 @@ This design ensures efficient management of balances.
 
 The pending balance consists of two chunks that hold all incoming transfers.
 It can handle up to 2^16 64-bit transfers before requiring a rollover to the actual balance.
-During this accumulation, the pending balance chunks can grow up to 48 bits.
+During this accumulation, the pending balance chunks can grow up to 48 bits each.
 
 The actual balance consists of four chunks, supporting 128-bit values.
 After any operation the actual balance should be [normalized](#normaliztion) back to 32-bit chunks to maintain efficient decryption.
