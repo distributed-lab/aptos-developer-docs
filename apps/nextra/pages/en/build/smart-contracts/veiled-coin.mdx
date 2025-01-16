@@ -11,8 +11,8 @@ import { ThemedImage } from "@components/index";
 The Veiled Coin Standard (also known as "Veiled Coin" or "VC") is a privacy-focused protocol for managing Fungible Assets (FA).
 It allows users to perform transactions with hidden FA amounts while keeping sender and recipient addresses publicly visible.
 
-The standard allows any FA to be wrapped into a corresponding Veiled Coin, ensuring compatibility with existing tokens.
-Similar to FA, 64-bit transfers are supported, and balances of up to 128 bits.
+This standard allows any FA to be wrapped into a corresponding Veiled Coin, ensuring compatibility with existing tokens.
+It supports 64-bit transfers, and balances of up to 128 bits.
 
 Operations on Veiled Coin balances (veiled balances), require zero-knowledge proofs (ZKPs) to verify transaction correctness
 without revealing hidden amounts and other sensitive data.
@@ -25,7 +25,7 @@ without revealing hidden amounts and other sensitive data.
 
 <Callout type="info">
   This documentation explains the contract's operations and offers insights into the protocol core processes.
-  Cryptographic and math details are explained superficially but more in-depth information can be found [here](https://).
+  Cryptographic and mathematical details are explained superficially but more in-depth information can be found [here](https://).
 </Callout>
 
 ## Veiled Coin Store
@@ -34,7 +34,7 @@ For every veiled coin a user registers, they generate a unique keypair:
 - An encryption key (EK) stored on-chain.
 - A decryption key (DK) kept securely by the user.
 
-These keys are standalone and should not be confused with the Aptos account's public and private keys.
+These keys are standalone and should not be confused with the user's Aptos account keys.
 
 Each veiled balance is split into two parts:
 - `pending_balance` - accumulates all incoming transactions.
@@ -49,7 +49,7 @@ Both balances are encrypted with the same user's EK, ensuring underlying amounts
 </Callout>
 
 The veiled balance and its associated encryption key are stored in the `VeiledCoinStore` resource.
-The `VeiledCoinStore` is instantiated for each veiled coin the user has and managed by the `veiled_coin` module:
+The `VeiledCoinStore` is instantiated for each veiled coin asset the user has and managed by the `veiled_coin` module:
 
 ```move filename="veiled_coin.move"
 struct VeiledCoinStore has key {
