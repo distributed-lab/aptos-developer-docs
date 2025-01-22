@@ -32,6 +32,9 @@ export default {
   "fungible-asset": {
     title: "Fungible Asset (FA)",
   },
+  "veiled-coin": {
+    title: "Veiled Coin (VC)",
+  },
   "aptos-coin": {
     title: "Coin (legacy)",
   },
