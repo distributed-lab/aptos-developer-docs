@@ -68,12 +68,12 @@ This design ensures efficient management of balances.
 
 ### Chunks
 
-The pending balance consists of two chunks that hold all incoming transfers.
+The pending balance consists of four chunks that hold all incoming transfers.
 It can handle up to 2^16 64-bit transfers before requiring a rollover to the actual balance.
-During this accumulation, the pending balance chunks can grow up to 48 bits each.
+During this accumulation, the pending balance chunks can grow up to 32 bits each.
 
-The actual balance consists of four chunks, supporting 128-bit values.
-After any operation the actual balance should be [normalized](#normaliztion) back to 32-bit chunks to maintain efficient decryption.
+The actual balance consists of eight chunks, supporting 128-bit values.
+After any operation the actual balance should be [normalized](#normaliztion) back to 16-bit chunks to maintain efficient decryption.
 
 The `VeiledBalance` struct from the `veiled_balance` module is used to represent both the pending and actual balances:
 
@@ -87,7 +87,7 @@ struct VeiledBalance has drop {
 
 Encryption involves:
 
-- Splitting the total amount into 32-bit chunks.
+- Splitting the total amount into 16-bit chunks.
 - Applying the user's EK to encrypt each chunk individually.
 
 Decryption involves:
@@ -98,7 +98,7 @@ Decryption involves:
 
 ### Normalization
 
-Normalization ensures chunks are always reduced to manageable sizes (32 bits).
+Normalization ensures chunks are always reduced to manageable sizes (16 bits).
 Without normalization, chunks can grow too large, making the decryption process (solving DL) significantly slower or even impractical.
 This mechanism is automatically applied to the actual balance after each operation,
 ensuring that users can always decrypt their balances, even as balances grow through multiple transactions.
@@ -661,7 +661,7 @@ public entry fun normalize(
 public fun is_normalized(user: address, token: Object<Metadata>): bool
 ```
 
-The `normalize` function ensures that the actual balance is reduced to 32-bit chunks for [efficient decryption](#normalization).
+The `normalize` function ensures that the actual balance is reduced to 16-bit chunks for [efficient decryption](#normalization).
 This is necessary only before the `rollover_pending_balance` operation, which requires the actual balance to be normalized beforehand.
 
 All other functions, such as `unveil` or `fully_veiled_transfer`, handle normalization implicitly, making manual normalization unnecessary in those cases.
